@@ -1,0 +1,3 @@
+#!/bin/sh
+# `openscad` for 3D Studio: the WebAssembly build, run as its own process
+exec node "$(dirname "$0")/openscad.mjs" "$@"

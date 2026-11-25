@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>3D Studio</title>
+  <script>
+    // apply the saved theme before first paint (no flash)
+    try { const t = JSON.parse(localStorage.getItem('studio.theme')); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t } catch {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Patrick+Hand&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <main class="app">
+    <!-- ============================== chat ============================== -->
+    <section class="chat">
+      <header class="bar">
+        <span class="brand">✎ 3D Studio</span>
+        <select id="project" aria-label="Project"></select>
+        <button id="newProject" class="ghost small" title="New project">＋</button>
+        <span class="grow"></span>
+        <button id="compact" class="ghost small" title="Summarise this conversation with Claude Code's /compact so each message reads less">Compact</button>
+        <button id="newChat" class="ghost small" title="Start a new conversation for this project">New chat</button>
+        <button id="themeToggle" class="ghost small icon" title="Switch between paper (light) and chalkboard (dark)" aria-label="Toggle dark mode">☾</button>
+      </header>
+      <div id="usage" class="usage muted"></div>
+      <div id="log" class="log" aria-live="polite"></div>
+      <form id="composer" class="composer">
+        <div id="chips" class="chips"></div>
+        <div class="ta-wrap">
+          <textarea id="input" rows="3" placeholder="Describe a design or a change. Type @ to tag a part."></textarea>
+          <div id="mentions" class="mentions" hidden></div>
+        </div>
+        <div class="row">
+          <span id="state" class="muted">Ready</span>
+          <select id="mode" title="Cost mode: which model and how much thinking">
+            <option value="quick">Quick · cheapest</option>
+            <option value="standard" selected>Standard</option>
+            <option value="deep">Deep · best quality</option>
+          </select>
+          <button type="button" id="stop" class="ghost" disabled>Stop</button>
+          <button type="submit" id="sendBtn">Send</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- ============================== centre ============================== -->
+    <section class="centre">
+      <header class="bar">
+        <div class="seg" role="tablist" aria-label="Stage">
+          <button data-view="blueprint" role="tab">① Blueprint</button>
+          <button data-view="3d" role="tab">② 3D model</button>
+        </div>
+        <span class="sep"></span>
+        <div class="seg" aria-label="Tool">
+          <button data-tool="select" class="on" title="Select a part (V)">Select</button>
+          <button data-tool="comment" title="Pin a comment (C)">Comment</button>
+          <button data-tool="measure" title="Measure between two points (M) - 3D only">Measure</button>
+          <button data-tool="area" title="Select an area: box, lasso, smart face or brush (A) - 3D only">Area</button>
+          <button data-tool="paint" title="Paint colours on the model (P) - 3D only">Paint</button>
+        </div>
+        <span class="grow"></span>
+        <button id="genOpen" class="small" title="Generate a 3D model from text or photos with AI">✨ Generate</button>
+        <button id="convert" class="primary" hidden title="Ask Claude to build the 3D model from the approved blueprints">Convert to 3D →</button>
+      </header>
+
+      <!-- 3D toolbar -->
+      <div id="bar3d" class="subbar">
+        <div class="seg" aria-label="Layout">
+          <button data-layout="assembled" class="on">Assembled</button>
+          <button data-layout="print">Print layout</button>
+        </div>
+        <label class="toggle">Explode <input id="explode" type="range" min="0" max="1" step="0.01" value="0"></label>
+        <button id="sectionToggle" class="ghost small" title="Crop box: see and select inside the model, export a test piece">✂ Section</button>
+        <span class="grow"></span>
+        <div class="seg" aria-label="Display">
+          <button data-mode="sketch" title="Paper surfaces with pencil outlines">Sketch</button>
+          <button data-mode="clay" class="on">Clay</button>
+          <button data-mode="xray">X-ray</button>
+          <button data-mode="wire">Wire</button>
+        </div>
+        <label class="toggle"><input type="checkbox" id="bed" checked> Bed</label>
+        <button id="fit" class="ghost small" title="Fit view">Fit</button>
+      </div>
+      <!-- section / crop box toolbar -->
+      <div id="barSection" class="subbar section-bar" hidden>
+        <div id="sectionAxes" class="axes"></div>
+        <div class="row">
+          <button class="small ghost" id="sectionFit" title="Wrap the crop box around the selected area (Area tool)">Fit to selection</button>
+          <button class="small ghost" id="sectionReset">Reset</button>
+          <button class="small" id="sectionExport" title="Cut the parts to this box and save small STLs for a quick test print">⬇ Export test piece</button>
+        </div>
+      </div>
+      <!-- area selection toolbar (Area tool) -->
+      <div id="barArea" class="subbar" hidden>
+        <div class="seg" aria-label="Selection mode">
+          <button data-amode="box" class="on" title="Drag a rectangle">▭ Box</button>
+          <button data-amode="lasso" title="Draw around an area">➰ Lasso</button>
+          <button data-amode="face" title="Click to select a whole face">✦ Smart face</button>
+          <button data-amode="brush" title="Paint the selection">✎ Brush</button>
+        </div>
+        <label class="toggle" id="selSizeWrap" hidden>Size <input type="range" id="selSize" min="1" max="40" value="6"> <span id="selSizeVal" class="muted">6 mm</span></label>
+        <label class="toggle" id="selAngleWrap" hidden title="Stop at edges sharper than this">Edge <input type="range" id="selAngle" min="5" max="80" value="25"> <span id="selAngleVal" class="muted">25°</span></label>
+        <label class="toggle" title="Also select surfaces hidden behind others"><input type="checkbox" id="xray"> X-ray</label>
+        <span class="muted">Shift add · Alt remove · right-drag rotate</span>
+      </div>
+      <!-- paint toolbar (Paint tool) -->
+      <div id="barPaint" class="subbar" hidden>
+        <div id="swatches" class="swatches" aria-label="Filament colours"></div>
+        <input type="color" id="customColor" value="#b5472f" title="Custom colour" class="colorpick">
+        <div class="seg" aria-label="Paint mode">
+          <button data-pmode="part" class="on" title="Click a part to colour all of it">Whole part</button>
+          <button data-pmode="fill" title="Click a surface to fill its face area">Fill face</button>
+          <button data-pmode="brush" title="Drag on the model to paint">Brush</button>
+          <button data-pmode="erase" title="Drag to remove paint">Eraser</button>
+        </div>
+        <label class="toggle" id="brushSizeWrap" hidden>Size <input type="range" id="brushSize" min="1" max="40" step="1" value="6"> <span id="brushSizeVal" class="muted">6 mm</span></label>
+        <label class="toggle" id="fillAngleWrap" hidden title="Stop filling at edges sharper than this">Edge <input type="range" id="fillAngle" min="5" max="80" value="25"> <span id="fillAngleVal" class="muted">25°</span></label>
+        <span class="muted">Drag empty space to rotate</span>
+      </div>
+      <!-- blueprint toolbar -->
+      <div id="bar2d" class="subbar" hidden>
+        <div id="sheets" class="seg" aria-label="Sheets"></div>
+        <span class="grow"></span>
+        <span class="muted">Click a dimension to change it · scroll to zoom · drag to pan</span>
+        <button id="fit2d" class="ghost small">Fit</button>
+      </div>
+
+      <div id="stage" class="stage">
+        <div id="view3d" class="view"></div>
+        <div id="view2d" class="view sheet" hidden></div>
+        <div id="overlay" class="overlay"></div>
+        <div id="empty" class="empty"></div>
+        <div id="popover" class="popover" hidden></div>
+        <div id="selCard" class="sel-card" hidden></div>
+      </div>
+      <footer id="info" class="info muted"></footer>
+    </section>
+
+    <!-- ============================== side ============================== -->
+    <aside class="side">
+      <nav class="tabs" role="tablist">
+        <button data-tab="parts" class="on">Parts</button>
+        <button data-tab="inspect">Inspect</button>
+        <button data-tab="comments">Comments <span id="commentCount" class="count"></span></button>
+        <button data-tab="params">Params</button>
+      </nav>
+      <div class="panel" data-panel="parts"><div id="partsList"></div></div>
+      <div class="panel" data-panel="inspect" hidden><div id="inspector"></div></div>
+      <div class="panel" data-panel="comments" hidden><div id="commentsList"></div></div>
+      <div class="panel" data-panel="params" hidden><div id="paramsForm"></div></div>
+    </aside>
+  </main>
+
+  <dialog id="projectDialog">
+    <form method="dialog" class="dlg">
+      <h3>New project</h3>
+      <label>Name <input id="projectName" required placeholder="e.g. Hexagon pen holder"></label>
+      <fieldset>
+        <legend>Start with</legend>
+        <label><input type="radio" name="stage" value="blueprint" checked> 2D blueprint first (recommended)</label>
+        <label><input type="radio" name="stage" value="3d"> Straight to 3D</label>
+      </fieldset>
+      <div class="row"><span class="grow"></span>
+        <button value="cancel" class="ghost" formnovalidate>Cancel</button>
+        <button value="ok" id="createProject">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="genDialog">
+    <form method="dialog" class="dlg gen">
+      <h3>✨ Generate a 3D model</h3>
+      <div class="seg" role="tablist">
+        <button type="button" data-gmode="text" class="on">From text</button>
+        <button type="button" data-gmode="image">From photos</button>
+      </div>
+      <label data-for="text">Describe the object
+        <textarea id="genPrompt" rows="3" maxlength="500" placeholder="e.g. a cute elephant figurine with its trunk raised"></textarea>
+      </label>
+      <div data-for="image" hidden>
+        <label>Photos or drawings of ONE object (1-4 views: front, side, back…)
+          <input id="genFiles" type="file" accept="image/png,image/jpeg,image/webp" multiple></label>
+        <div id="genThumbs" class="thumbs"></div>
+        <span class="muted">Best results: plain background, the whole object in view, good light.</span>
+      </div>
+      <div class="gen-grid">
+        <label>Size (longest side, mm) <input id="genSize" type="number" min="10" max="250" value="80"></label>
+        <label>Detail
+          <select id="genDetail"><option value="low">Low · fewer triangles</option><option value="medium" selected>Medium</option><option value="high">High · finest</option></select></label>
+        <label>Seed <input id="genSeed" type="number" placeholder="random"></label>
+      </div>
+      <details id="genSettings">
+        <summary>AI settings <span id="genTokenState" class="muted"></span></summary>
+        <p class="muted">Free open-source models (FLUX.1-schnell → TRELLIS) on Hugging Face. A free Hugging Face access token
+          (huggingface.co → Settings → Access Tokens, "read") gives you your own GPU quota. It is stored only on this computer.</p>
+        <div class="row"><input id="genToken" type="password" autocomplete="off" placeholder="hf_…" style="flex:1;max-width:none">
+          <button type="button" class="small ghost" id="genTokenSave">Save</button>
+          <button type="button" class="small ghost" id="genTokenClear">Remove</button></div>
+      </details>
+      <div class="row"><span id="genMsg" class="errmsg"></span><span class="grow"></span>
+        <button value="cancel" class="ghost" formnovalidate>Close</button>
+        <button type="button" id="genGo">Generate</button></div>
+    </form>
+  </dialog>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

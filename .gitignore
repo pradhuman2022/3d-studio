@@ -1,0 +1,5 @@
+node_modules/
+.studio/
+.DS_Store
+.secrets.json
+docs/AGENT-RESEARCH.md
